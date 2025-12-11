@@ -1,0 +1,796 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { apiService } from '../services/api';
+import { 
+  GeneratedRule, 
+  RulePreview, 
+  AdSetRuleCreate, 
+  CampaignAnalysis,
+  OptimizationSuggestion,
+  RuleSchema,
+} from '../types';
+
+interface AIRuleChatbotProps {
+  isOpen: boolean;
+  onClose: () => void;
+  agentId: string;
+  campaignId: string;
+  campaignName: string;
+  onRuleCreated?: () => void;
+}
+
+interface Message {
+  id: string;
+  type: 'user' | 'assistant' | 'system' | 'analysis' | 'suggestion';
+  content: string;
+  timestamp: Date;
+  data?: any;
+}
+
+const AIRuleChatbot: React.FC<AIRuleChatbotProps> = ({
+  isOpen,
+  onClose,
+  agentId,
+  campaignId,
+  campaignName,
+  onRuleCreated,
+}) => {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [generatedRule, setGeneratedRule] = useState<GeneratedRule | null>(null);
+  const [preview, setPreview] = useState<RulePreview | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [executionMode, setExecutionMode] = useState<'AUTO' | 'MANUAL'>('MANUAL');
+  const [mode, setMode] = useState<'basic' | 'advanced'>('basic');
+  const [analysis, setAnalysis] = useState<CampaignAnalysis | null>(null);
+  const [analyzingCampaign, setAnalyzingCampaign] = useState(false);
+  const [schema, setSchema] = useState<RuleSchema | null>(null);
+  const [activeTab, setActiveTab] = useState<'chat' | 'analysis'>('chat');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      // Reset state when opening
+      setMessages([{
+        id: '1',
+        type: 'system',
+        content: `👋 Hi! I'm your AI assistant for optimizing campaign "${campaignName}".
+
+**What I can do:**
+• Create rules using natural language (e.g., "Pause ad sets with cost per conversion above $50")
+• Analyze campaign performance and suggest optimizations
+• Handle complex conditions with date ranges, regex patterns, and statistical comparisons
+
+**Quick commands:**
+• Type "analyze" to get a full campaign analysis
+• Switch to "Advanced" mode for more operators and fields
+
+How can I help you today?`,
+        timestamp: new Date(),
+      }]);
+      setGeneratedRule(null);
+      setPreview(null);
+      setAnalysis(null);
+      
+      // Load schema
+      loadSchema();
+    }
+  }, [isOpen, campaignName]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const loadSchema = async () => {
+    try {
+      const response = await apiService.getRuleSchema(mode);
+      setSchema(response.data);
+    } catch (error) {
+      console.error('Failed to load schema:', error);
+    }
+  };
+
+  useEffect(() => {
+    loadSchema();
+  }, [mode]);
+
+  const handleAnalyze = async () => {
+    setAnalyzingCampaign(true);
+    setActiveTab('analysis');
+    
+    const analysisMsg: Message = {
+      id: Date.now().toString(),
+      type: 'system',
+      content: '🔍 Analyzing campaign performance...',
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, analysisMsg]);
+
+    try {
+      const response = await apiService.analyzeCampaign(agentId, campaignId);
+      setAnalysis(response.data);
+      
+      // Add analysis summary message
+      const summaryMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'analysis',
+        content: `📊 **Campaign Analysis Complete**
+
+**Summary:**
+• Total Ad Sets: ${response.data.summary.total_ad_sets} (${response.data.summary.active_ad_sets} active, ${response.data.summary.paused_ad_sets} paused)
+• Total Spend: $${response.data.summary.total_spend.toFixed(2)}
+• Total Conversions: ${response.data.summary.total_conversions}
+• Average Cost/Conversion: $${response.data.summary.average_cost_per_conversion.toFixed(2)}
+• Average CTR: ${response.data.summary.average_ctr.toFixed(2)}%
+• ROAS: ${response.data.summary.average_roas.toFixed(2)}
+
+**Insights:**
+${response.data.performance_insights.map((i: string) => `• ${i}`).join('\n')}
+
+${response.data.optimization_opportunities.length > 0 
+  ? `\n**🎯 ${response.data.optimization_opportunities.length} Optimization Opportunities Found!**\nClick on a suggestion below to create a rule.`
+  : ''}`,
+        timestamp: new Date(),
+        data: response.data,
+      };
+      setMessages(prev => [...prev.slice(0, -1), summaryMsg]);
+    } catch (error: any) {
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: `❌ Failed to analyze campaign: ${error.response?.data?.detail || error.message}`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev.slice(0, -1), errorMsg]);
+    } finally {
+      setAnalyzingCampaign(false);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || loading) return;
+
+    const userInput = input.trim().toLowerCase();
+    
+    // Handle special commands
+    if (userInput === 'analyze' || userInput === 'analysis') {
+      setInput('');
+      await handleAnalyze();
+      return;
+    }
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: input.trim(),
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setLoading(true);
+    setGeneratedRule(null);
+    setPreview(null);
+
+    try {
+      const response = await apiService.generateRule(input.trim(), agentId, campaignId, mode);
+      const rule = response.data;
+
+      setGeneratedRule(rule);
+
+      // Format conditions for display
+      const conditionsList = rule.filter_config.conditions?.map(c => {
+        let condStr = `${c.field} ${c.operator} ${c.value}`;
+        if (c.value2 !== undefined) condStr += ` and ${c.value2}`;
+        if (c.time_window) condStr += ` (${c.time_window})`;
+        return condStr;
+      }).join('\n• ') || '';
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: `✅ **Generated Rule: ${rule.rule_name}**
+
+${rule.description || ''}
+
+**Action:** ${rule.action.type === 'PAUSE' ? '⏸️ Pause' : '▶️ Activate'} matching ad sets
+
+**Conditions:**
+• ${conditionsList}
+
+${rule.explanation ? `\n**Reasoning:** ${rule.explanation}` : ''}`,
+        timestamp: new Date(),
+        data: rule,
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+
+      // Auto-preview
+      try {
+        const previewResponse = await apiService.previewRule(agentId, campaignId, rule.filter_config);
+        setPreview(previewResponse.data);
+        
+        const previewMsg: Message = {
+          id: (Date.now() + 2).toString(),
+          type: 'system',
+          content: `📋 **Preview:** ${previewResponse.data.matching_ad_sets} out of ${previewResponse.data.total_ad_sets} ad sets match this rule.`,
+          timestamp: new Date(),
+          data: previewResponse.data,
+        };
+        setMessages(prev => [...prev, previewMsg]);
+      } catch (error: any) {
+        console.error('Preview error:', error);
+      }
+    } catch (error: any) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: `❌ Sorry, I encountered an error: ${error.response?.data?.detail || error.message || 'Unknown error'}. 
+
+Please try rephrasing your request or check if the OpenAI API key is configured.`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApplySuggestion = async (suggestion: OptimizationSuggestion) => {
+    if (!suggestion.suggested_rule) return;
+    
+    setGeneratedRule({
+      ...suggestion.suggested_rule,
+      agent_id: agentId,
+      campaign_id: campaignId,
+    });
+    setActiveTab('chat');
+    
+    const msg: Message = {
+      id: Date.now().toString(),
+      type: 'assistant',
+      content: `📝 Applied suggestion: **${suggestion.title}**
+
+${suggestion.description}
+
+${suggestion.potential_savings ? `💰 Potential savings: $${suggestion.potential_savings.toFixed(2)}` : ''}
+
+You can preview and save this rule below.`,
+      timestamp: new Date(),
+      data: suggestion.suggested_rule,
+    };
+    setMessages(prev => [...prev, msg]);
+
+    // Auto-preview
+    if (suggestion.suggested_rule.filter_config) {
+      try {
+        const previewResponse = await apiService.previewRule(agentId, campaignId, suggestion.suggested_rule.filter_config);
+        setPreview(previewResponse.data);
+      } catch (error) {
+        console.error('Preview error:', error);
+      }
+    }
+  };
+
+  const handlePreview = async () => {
+    if (!generatedRule) return;
+
+    setLoading(true);
+    try {
+      const response = await apiService.previewRule(agentId, campaignId, generatedRule.filter_config);
+      setPreview(response.data);
+      
+      const msg: Message = {
+        id: Date.now().toString(),
+        type: 'system',
+        content: `📋 **Updated Preview:** ${response.data.matching_ad_sets} out of ${response.data.total_ad_sets} ad sets match.`,
+        timestamp: new Date(),
+        data: response.data,
+      };
+      setMessages(prev => [...prev, msg]);
+    } catch (error: any) {
+      alert(`Failed to preview rule: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!generatedRule) return;
+
+    setSaving(true);
+    try {
+      const ruleToCreate: AdSetRuleCreate = {
+        agent_id: agentId,
+        campaign_id: campaignId,
+        rule_name: generatedRule.rule_name,
+        description: generatedRule.description,
+        filter_config: generatedRule.filter_config,
+        action: generatedRule.action,
+        execution_mode: executionMode,
+      };
+
+      await apiService.createAdSetRule(ruleToCreate);
+
+      const successMessage: Message = {
+        id: Date.now().toString(),
+        type: 'system',
+        content: `🎉 Rule "${generatedRule.rule_name}" saved successfully!
+
+${executionMode === 'AUTO' 
+  ? '⚡ It will execute automatically every 5 minutes.' 
+  : '👆 You can run it manually from the Rules tab.'}`,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, successMessage]);
+      setGeneratedRule(null);
+      setPreview(null);
+      setInput('');
+
+      if (onRuleCreated) {
+        onRuleCreated();
+      }
+
+      // Close after a delay
+      setTimeout(() => {
+        onClose();
+      }, 2500);
+    } catch (error: any) {
+      alert(`Failed to save rule: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-600 to-purple-600">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-white">
+                AI Rule Assistant
+              </h2>
+              <p className="text-sm text-white/80">
+                Campaign: {campaignName}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            {/* Mode Toggle */}
+            <div className="flex bg-white/20 rounded-lg p-1">
+              <button
+                onClick={() => setMode('basic')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  mode === 'basic' 
+                    ? 'bg-white text-blue-600' 
+                    : 'text-white hover:bg-white/10'
+                }`}
+              >
+                Basic
+              </button>
+              <button
+                onClick={() => setMode('advanced')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  mode === 'advanced' 
+                    ? 'bg-white text-purple-600' 
+                    : 'text-white hover:bg-white/10'
+                }`}
+              >
+                Advanced
+              </button>
+            </div>
+            
+            <button
+              onClick={onClose}
+              className="text-white/80 hover:text-white p-2 hover:bg-white/10 rounded-lg transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Tab Bar */}
+        <div className="flex border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`px-6 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'chat'
+                ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-white dark:bg-gray-800'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+            }`}
+          >
+            💬 Chat
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('analysis');
+              if (!analysis && !analyzingCampaign) {
+                handleAnalyze();
+              }
+            }}
+            className={`px-6 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'analysis'
+                ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-white dark:bg-gray-800'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+            }`}
+          >
+            📊 Analysis {analysis && '✓'}
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-hidden flex">
+          {/* Chat Panel */}
+          {activeTab === 'chat' && (
+            <div className="flex-1 flex flex-col">
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-2xl p-4 ${
+                        message.type === 'user'
+                          ? 'bg-blue-600 text-white'
+                          : message.type === 'system'
+                          ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                          : message.type === 'analysis'
+                          ? 'bg-purple-50 dark:bg-purple-900/30 text-gray-800 dark:text-gray-200 border border-purple-200 dark:border-purple-800'
+                          : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-md border border-gray-200 dark:border-gray-600'
+                      }`}
+                    >
+                      <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
+                        {message.content}
+                      </div>
+                      <p className="text-xs mt-2 opacity-60">
+                        {message.timestamp.toLocaleTimeString()}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="bg-white dark:bg-gray-700 rounded-2xl p-4 shadow-md border border-gray-200 dark:border-gray-600">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                        <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
+                          {mode === 'advanced' ? 'Creating advanced rule...' : 'Thinking...'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview Card */}
+                {preview && preview.matched_ad_sets.length > 0 && (
+                  <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800">
+                    <h4 className="font-semibold text-green-800 dark:text-green-300 mb-2">
+                      Matching Ad Sets ({preview.matching_ad_sets}/{preview.total_ad_sets})
+                    </h4>
+                    <div className="max-h-32 overflow-y-auto">
+                      <ul className="text-sm space-y-1">
+                        {preview.matched_ad_sets.slice(0, 8).map((adSet) => (
+                          <li key={adSet.id} className="text-green-700 dark:text-green-300 flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${adSet.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                            {adSet.name}
+                          </li>
+                        ))}
+                        {preview.matched_ad_sets.length > 8 && (
+                          <li className="text-green-600 dark:text-green-400 italic">
+                            ... and {preview.matched_ad_sets.length - 8} more
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Generated Rule Actions */}
+              {generatedRule && (
+                <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Execution Mode:
+                    </span>
+                    <div className="flex bg-gray-200 dark:bg-gray-700 rounded-lg p-1">
+                      <button
+                        onClick={() => setExecutionMode('MANUAL')}
+                        className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                          executionMode === 'MANUAL'
+                            ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                            : 'text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        Manual
+                      </button>
+                      <button
+                        onClick={() => setExecutionMode('AUTO')}
+                        className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                          executionMode === 'AUTO'
+                            ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                            : 'text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        Auto (5 min)
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handlePreview}
+                      disabled={loading}
+                      className="btn btn-secondary flex-1"
+                    >
+                      🔍 Preview
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="btn btn-primary flex-1"
+                    >
+                      {saving ? '💾 Saving...' : '💾 Save Rule'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Input */}
+              <div className="border-t border-gray-200 dark:border-gray-700 p-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                    placeholder={mode === 'advanced' 
+                      ? "Try: 'Pause ad sets where cost per conversion is above average and created more than 7 days ago'"
+                      : "Try: 'Pause ad sets with spend over $50 and no conversions'"
+                    }
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={loading}
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={loading || !input.trim()}
+                    className="btn btn-primary px-6 rounded-xl"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={analyzingCampaign}
+                    className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    📊 Analyze Campaign
+                  </button>
+                  <span className="text-gray-300 dark:text-gray-600">|</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    Mode: <strong className={mode === 'advanced' ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'}>
+                      {mode === 'advanced' ? 'Advanced' : 'Basic'}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Analysis Panel */}
+          {activeTab === 'analysis' && (
+            <div className="flex-1 overflow-y-auto p-6">
+              {analyzingCampaign ? (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                  <p className="text-gray-600 dark:text-gray-400">Analyzing campaign performance...</p>
+                </div>
+              ) : analysis ? (
+                <div className="space-y-6">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-600">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Total Spend</div>
+                      <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                        ${analysis.summary.total_spend.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-600">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Conversions</div>
+                      <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                        {analysis.summary.total_conversions}
+                      </div>
+                    </div>
+                    <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-600">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Avg Cost/Conv</div>
+                      <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                        ${analysis.summary.average_cost_per_conversion.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-600">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">ROAS</div>
+                      <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                        {analysis.summary.average_roas.toFixed(2)}x
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Insights */}
+                  {analysis.performance_insights.length > 0 && (
+                    <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-600">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+                        📈 Performance Insights
+                      </h3>
+                      <ul className="space-y-2">
+                        {analysis.performance_insights.map((insight, idx) => (
+                          <li key={idx} className="text-gray-700 dark:text-gray-300 flex items-start gap-2">
+                            <span className="text-blue-500 mt-1">•</span>
+                            {insight}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Optimization Opportunities */}
+                  {analysis.optimization_opportunities.length > 0 && (
+                    <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-600">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+                        🎯 Optimization Opportunities
+                      </h3>
+                      <div className="space-y-3">
+                        {analysis.optimization_opportunities.map((opp, idx) => (
+                          <div 
+                            key={idx}
+                            className={`p-4 rounded-lg border ${
+                              opp.priority === 'high' 
+                                ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                                : opp.priority === 'medium'
+                                ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+                                : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                    opp.priority === 'high' 
+                                      ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200'
+                                      : opp.priority === 'medium'
+                                      ? 'bg-yellow-200 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-200'
+                                      : 'bg-blue-200 text-blue-800 dark:bg-blue-800 dark:text-blue-200'
+                                  }`}>
+                                    {opp.priority.toUpperCase()}
+                                  </span>
+                                  <span className="font-medium text-gray-900 dark:text-white">
+                                    {opp.title}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                  {opp.description}
+                                </p>
+                                {opp.potential_savings && (
+                                  <p className="text-sm font-medium text-green-600 dark:text-green-400">
+                                    💰 Potential savings: ${opp.potential_savings.toFixed(2)}
+                                  </p>
+                                )}
+                              </div>
+                              {opp.suggested_rule && (
+                                <button
+                                  onClick={() => handleApplySuggestion(opp)}
+                                  className="btn btn-primary btn-sm ml-4"
+                                >
+                                  Apply Rule
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Underperforming Ad Sets */}
+                  {analysis.underperforming_ad_sets.length > 0 && (
+                    <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-600">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+                        ⚠️ Underperforming Ad Sets
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-600">
+                            <tr>
+                              <th className="pb-2">Name</th>
+                              <th className="pb-2">Status</th>
+                              <th className="pb-2">Spend</th>
+                              <th className="pb-2">Conv.</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-700 dark:text-gray-300">
+                            {analysis.underperforming_ad_sets.slice(0, 5).map((adSet: any) => (
+                              <tr key={adSet.id} className="border-b border-gray-100 dark:border-gray-700">
+                                <td className="py-2">{adSet.name}</td>
+                                <td className="py-2">
+                                  <span className={`px-2 py-0.5 text-xs rounded ${
+                                    adSet.status === 'ACTIVE' 
+                                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                      : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                                  }`}>
+                                    {adSet.status}
+                                  </span>
+                                </td>
+                                <td className="py-2">${parseFloat(adSet.performance_metrics?.spend || 0).toFixed(2)}</td>
+                                <td className="py-2">
+                                  {adSet.performance_metrics?.actions?.[0]?.value || 0}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Refresh Button */}
+                  <div className="flex justify-center">
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={analyzingCampaign}
+                      className="btn btn-secondary"
+                    >
+                      🔄 Refresh Analysis
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <div className="text-6xl mb-4">📊</div>
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                    Campaign Analysis
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4 text-center">
+                    Get AI-powered insights and optimization suggestions for your campaign.
+                  </p>
+                  <button
+                    onClick={handleAnalyze}
+                    className="btn btn-primary"
+                  >
+                    Start Analysis
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AIRuleChatbot;
