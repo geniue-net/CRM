@@ -56,6 +56,15 @@ export const FIELD_CATEGORIES = {
       { id: 'ctr', label: 'CTR (Click-Through Rate)', type: 'percentage' },
       { id: 'cpc', label: 'CPC (Cost per Click)', type: 'money' },
       { id: 'cpm', label: 'CPM (Cost per 1000 Impressions)', type: 'money' },
+      { id: 'reach_efficiency', label: 'Reach Efficiency (Reach/Impressions)', type: 'percentage' },
+      { id: 'unique_clicks', label: 'Unique Clicks', type: 'number' },
+      { id: 'unique_ctr', label: 'Unique CTR', type: 'percentage' },
+      { id: 'cost_per_unique_click', label: 'Cost per Unique Click', type: 'money' },
+      { id: 'video_views', label: 'Video Views', type: 'number' },
+      { id: 'video_view_rate', label: 'Video View Rate', type: 'percentage' },
+      { id: 'cost_per_video_view', label: 'Cost per Video View', type: 'money' },
+      { id: 'engagement_rate', label: 'Engagement Rate', type: 'percentage' },
+      { id: 'cost_per_engagement', label: 'Cost per Engagement', type: 'money' },
     ]
   },
   conversions: {
@@ -68,6 +77,14 @@ export const FIELD_CATEGORIES = {
       { id: 'actions', label: 'Actions', type: 'number' },
       { id: 'roas', label: 'ROAS (Return on Ad Spend)', type: 'number' },
       { id: 'purchase_value', label: 'Purchase Value', type: 'money' },
+      { id: 'revenue', label: 'Revenue', type: 'money' },
+      { id: 'profit', label: 'Profit (Revenue - Spend)', type: 'money' },
+      { id: 'profit_margin', label: 'Profit Margin (%)', type: 'percentage' },
+      { id: 'value_per_conversion', label: 'Value per Conversion', type: 'money' },
+      { id: 'conversion_value_cost_ratio', label: 'Conversion Value/Cost Ratio', type: 'number' },
+      { id: 'quality_ranking', label: 'Quality Ranking', type: 'enum', values: ['ABOVE_AVERAGE', 'AVERAGE', 'BELOW_AVERAGE', 'UNKNOWN'] },
+      { id: 'engagement_ranking', label: 'Engagement Ranking', type: 'enum', values: ['ABOVE_AVERAGE', 'AVERAGE', 'BELOW_AVERAGE', 'UNKNOWN'] },
+      { id: 'conversion_ranking', label: 'Conversion Ranking', type: 'enum', values: ['ABOVE_AVERAGE', 'AVERAGE', 'BELOW_AVERAGE', 'UNKNOWN'] },
     ]
   },
   advanced: {
@@ -349,7 +366,7 @@ function getFieldValue(adSet: any, field: string, timeWindow?: string): any {
       return spend > 0 ? Number(purchaseValue) / Number(spend) : 0;
     }
 
-    if (field === 'purchase_value') {
+    if (field === 'purchase_value' || field === 'revenue') {
       const actionValues = adSet.performance_metrics.action_values;
       if (actionValues && Array.isArray(actionValues)) {
         const purchase = actionValues.find((av: any) => 
@@ -358,6 +375,100 @@ function getFieldValue(adSet: any, field: string, timeWindow?: string): any {
         return purchase ? parseFloat(purchase.value || 0) : 0;
       }
       return 0;
+    }
+
+    if (field === 'profit') {
+      // Calculate revenue inline to avoid recursion
+      const actionValues = adSet.performance_metrics.action_values;
+      let revenue = 0;
+      if (actionValues && Array.isArray(actionValues)) {
+        const purchase = actionValues.find((av: any) => 
+          av.action_type === 'purchase' || av.action_type === 'omni_purchase'
+        );
+        revenue = purchase ? parseFloat(purchase.value || 0) : 0;
+      }
+      const spend = adSet.performance_metrics.spend || 0;
+      return Number(revenue) - Number(spend);
+    }
+
+    if (field === 'profit_margin') {
+      // Calculate revenue inline to avoid recursion
+      const actionValues = adSet.performance_metrics.action_values;
+      let revenue = 0;
+      if (actionValues && Array.isArray(actionValues)) {
+        const purchase = actionValues.find((av: any) => 
+          av.action_type === 'purchase' || av.action_type === 'omni_purchase'
+        );
+        revenue = purchase ? parseFloat(purchase.value || 0) : 0;
+      }
+      const spend = adSet.performance_metrics.spend || 0;
+      return revenue > 0 ? ((Number(revenue) - Number(spend)) / Number(revenue)) * 100 : 0;
+    }
+
+    if (field === 'value_per_conversion') {
+      // Calculate revenue inline to avoid recursion
+      const actionValues = adSet.performance_metrics.action_values;
+      let revenue = 0;
+      if (actionValues && Array.isArray(actionValues)) {
+        const purchase = actionValues.find((av: any) => 
+          av.action_type === 'purchase' || av.action_type === 'omni_purchase'
+        );
+        revenue = purchase ? parseFloat(purchase.value || 0) : 0;
+      }
+      const conversions = getConversions(adSet.performance_metrics);
+      return conversions > 0 ? Number(revenue) / conversions : 0;
+    }
+
+    if (field === 'conversion_value_cost_ratio') {
+      // Calculate revenue inline to avoid recursion
+      const actionValues = adSet.performance_metrics.action_values;
+      let revenue = 0;
+      if (actionValues && Array.isArray(actionValues)) {
+        const purchase = actionValues.find((av: any) => 
+          av.action_type === 'purchase' || av.action_type === 'omni_purchase'
+        );
+        revenue = purchase ? parseFloat(purchase.value || 0) : 0;
+      }
+      const spend = adSet.performance_metrics.spend || 0;
+      return spend > 0 ? Number(revenue) / Number(spend) : 0;
+    }
+
+    if (field === 'reach_efficiency') {
+      const reach = adSet.performance_metrics.reach || 0;
+      const impressions = adSet.performance_metrics.impressions || 0;
+      return impressions > 0 ? (Number(reach) / Number(impressions)) * 100 : 0;
+    }
+
+    if (field === 'engagement_rate') {
+      const actions = adSet.performance_metrics.actions;
+      const totalActions = actions && Array.isArray(actions) 
+        ? actions.reduce((sum: number, a: any) => sum + parseFloat(a.value || 0), 0)
+        : 0;
+      const impressions = adSet.performance_metrics.impressions || 0;
+      return impressions > 0 ? (totalActions / impressions) * 100 : 0;
+    }
+
+    if (field === 'video_view_rate') {
+      const videoViews = adSet.performance_metrics.video_views || 0;
+      const impressions = adSet.performance_metrics.impressions || 0;
+      return impressions > 0 ? (Number(videoViews) / Number(impressions)) * 100 : 0;
+    }
+
+    if (field === 'cost_per_video_view') {
+      const videoViews = adSet.performance_metrics.video_views || 0;
+      const spend = adSet.performance_metrics.spend || 0;
+      return videoViews > 0 ? Number(spend) / Number(videoViews) : 0;
+    }
+
+    if (field === 'unique_clicks' || field === 'unique_ctr' || field === 'cost_per_unique_click') {
+      // These would need to be fetched from Meta API with specific fields
+      // For now, return null if not available
+      return adSet.performance_metrics[field] || null;
+    }
+
+    if (field === 'quality_ranking' || field === 'engagement_ranking' || field === 'conversion_ranking') {
+      // These are Meta quality signals - would need to be fetched from ad level insights
+      return adSet.performance_metrics[field] || 'UNKNOWN';
     }
   }
   
@@ -371,7 +482,12 @@ function getFieldValue(adSet: any, field: string, timeWindow?: string): any {
 
 // Calculate campaign statistics for comparison operators
 export function calculateCampaignStatistics(adSets: any[]): CampaignStatistics {
-  const metrics = ['spend', 'impressions', 'clicks', 'conversions', 'ctr', 'cpc', 'cpm', 'cost_per_conversion', 'roas'];
+  const metrics = [
+    'spend', 'impressions', 'clicks', 'conversions', 'ctr', 'cpc', 'cpm', 
+    'cost_per_conversion', 'roas', 'reach', 'frequency', 'reach_efficiency',
+    'engagement_rate', 'conversion_rate', 'video_view_rate', 'revenue', 'profit',
+    'profit_margin', 'value_per_conversion'
+  ];
   
   const stats: CampaignStatistics = {
     averages: {},

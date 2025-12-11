@@ -241,6 +241,9 @@ router.post('/:agent_id/config:pull', async (req: AuthRequest, res: Response) =>
 
     const adAccounts = await AdAccount.find({ agent_id, is_active: true });
 
+    // Since one agent = one account, get the first active account's Meta credentials
+    const primaryAccount = adAccounts.find(acc => acc.meta_access_token) || adAccounts[0];
+
     res.json({
       agent_id,
       version: new Date().toISOString() + 'Z',
@@ -256,6 +259,16 @@ router.post('/:agent_id/config:pull', async (req: AuthRequest, res: Response) =>
         cred_ref: acc.cred_ref,
         permissions: ['READ', 'WRITE'],
       })),
+      // Include Meta API credentials if available (one agent = one account)
+      meta_api: primaryAccount && primaryAccount.meta_access_token ? {
+        app_id: config.meta.appId,
+        app_secret: config.meta.appSecret,
+        access_token: primaryAccount.meta_access_token,
+        ad_account_id: primaryAccount.meta_ad_account_id,
+        base_url: `${config.meta.baseUrl}/${config.meta.apiVersion}`,
+        timeout: 30,
+        token_expires_at: primaryAccount.meta_token_expires_at,
+      } : null,
     });
   } catch (error) {
     console.error('Pull config error:', error);

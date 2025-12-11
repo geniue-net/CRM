@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Agents from './pages/Agents';
 import AgentDetails from './pages/AgentDetails';
+import MetaOAuthCallback from './pages/MetaOAuthCallback';
 import { ToastContainer, useToast } from './components/Toast';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -27,6 +28,7 @@ const AppContent: React.FC = () => {
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/auth/meta/callback" element={<MetaOAuthCallback />} />
           <Route
             path="/*"
             element={

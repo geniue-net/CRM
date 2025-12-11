@@ -35,6 +35,13 @@ export interface AdAccount {
   cred_ref?: string;
   currency_code?: string;
   is_active: boolean;
+  // OAuth tokens
+  meta_access_token?: string;
+  meta_token_expires_at?: string;
+  meta_refresh_token?: string;
+  meta_user_id?: string;
+  meta_connected_at?: string;
+  meta_last_synced_at?: string;
 }
 
 export interface Campaign {

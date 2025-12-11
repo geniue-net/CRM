@@ -133,25 +133,49 @@ class CredentialManager:
 
 cred_manager = CredentialManager()
 
+# Initialize Meta API client with credential fetcher
+try:
+    from .credential_fetcher import CredentialFetcher
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from credential_fetcher import CredentialFetcher
+
+# Initialize credential fetcher
+credential_fetcher = CredentialFetcher(
+    crm_base_url=CRM_BASE_URL,
+    agent_id=AGENT_ID,
+    agent_token=AGENT_TOKEN
+)
+
+# Try to fetch credentials from database first
+meta_credentials = credential_fetcher.fetch_credentials()
+
 # Initialize Meta API client
-# Try multiple config paths
-config_paths = [
-    '/app/config/meta_config.json',  # Docker
-    str(Path(__file__).parent.parent / 'config' / 'meta_config.json'),  # Local development
-    'config/meta_config.json',  # Current directory
-]
-
-meta_config_path = None
-for path in config_paths:
-    if os.path.exists(path):
-        meta_config_path = path
-        break
-
-if meta_config_path:
-    meta_client = MetaAPIClient(config_path=meta_config_path)
+if meta_credentials:
+    # Use credentials from database (preferred)
+    meta_client = MetaAPIClient(credentials=meta_credentials)
+    print("Using Meta API credentials from database")
 else:
-    # Fallback: create client with default path (will use env vars)
-    meta_client = MetaAPIClient(config_path="config/meta_config.json")
+    # Fallback to config file
+    config_paths = [
+        '/app/config/meta_config.json',  # Docker
+        str(Path(__file__).parent.parent / 'config' / 'meta_config.json'),  # Local development
+        'config/meta_config.json',  # Current directory
+    ]
+    
+    meta_config_path = None
+    for path in config_paths:
+        if os.path.exists(path):
+            meta_config_path = path
+            break
+    
+    if meta_config_path:
+        meta_client = MetaAPIClient(config_path=meta_config_path)
+        print(f"Using Meta API credentials from config file: {meta_config_path}")
+    else:
+        # Fallback: create client with default path (will use env vars)
+        meta_client = MetaAPIClient(config_path="config/meta_config.json")
+        print("Using Meta API credentials from environment variables")
 
 class CredentialFileHandler(FileSystemEventHandler):
     def on_modified(self, event):
@@ -223,6 +247,16 @@ async def sync_meta_data_loop():
     async with httpx.AsyncClient() as client:
         while True:
             try:
+                # Refresh credentials from database before sync
+                new_credentials = credential_fetcher.fetch_credentials()
+                if new_credentials:
+                    # Update meta client with new credentials
+                    global meta_client
+                    meta_client = MetaAPIClient(credentials=new_credentials)
+                    # Save to file for backward compatibility
+                    config_path = str(Path(__file__).parent.parent / 'config' / 'meta_config.json')
+                    credential_fetcher.save_credentials_to_file(new_credentials, config_path)
+                
                 # Test Meta connection
                 if meta_client.test_connection():
                     # Get account info

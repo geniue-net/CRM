@@ -350,6 +350,34 @@ export async function analyzeCampaign(
     }
   }
 
+  // Calculate additional metrics
+  let totalReach = 0;
+  let totalFrequency = 0;
+  let totalVideoViews = 0;
+  let totalEngagements = 0;
+  
+  for (const adSet of adSetsData) {
+    const metrics = adSet.performance_metrics || {};
+    totalReach += parseInt(metrics.reach || 0);
+    totalFrequency += parseFloat(metrics.frequency || 0);
+    totalVideoViews += parseInt(metrics.video_views || 0);
+    
+    // Count engagements (likes, comments, shares, etc.)
+    if (metrics.actions && Array.isArray(metrics.actions)) {
+      const engagementActions = metrics.actions.filter((a: any) => 
+        ['like', 'comment', 'share', 'post_engagement'].includes(a.action_type)
+      );
+      totalEngagements += engagementActions.reduce((sum: number, a: any) => sum + parseFloat(a.value || 0), 0);
+    }
+  }
+
+  const avgReach = adSetsData.length > 0 ? totalReach / adSetsData.length : 0;
+  const avgFrequency = adSetsData.length > 0 ? totalFrequency / adSetsData.length : 0;
+  const reachEfficiency = totalImpressions > 0 ? (totalReach / totalImpressions) * 100 : 0;
+  const engagementRate = totalImpressions > 0 ? (totalEngagements / totalImpressions) * 100 : 0;
+  const profit = totalPurchaseValue - totalSpend;
+  const profitMargin = totalPurchaseValue > 0 ? (profit / totalPurchaseValue) * 100 : 0;
+
   const summary = {
     total_ad_sets: adSetsData.length,
     active_ad_sets: activeAdSets.length,
@@ -358,10 +386,21 @@ export async function analyzeCampaign(
     total_impressions: totalImpressions,
     total_clicks: totalClicks,
     total_conversions: totalConversions,
+    total_reach: totalReach,
+    total_video_views: totalVideoViews,
+    total_engagements: totalEngagements,
+    total_revenue: totalPurchaseValue,
+    total_profit: profit,
     average_ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
     average_cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
     average_cost_per_conversion: totalConversions > 0 ? totalSpend / totalConversions : 0,
     average_roas: totalSpend > 0 ? totalPurchaseValue / totalSpend : 0,
+    average_reach: avgReach,
+    average_frequency: avgFrequency,
+    reach_efficiency: reachEfficiency,
+    engagement_rate: engagementRate,
+    profit_margin: profitMargin,
+    value_per_conversion: totalConversions > 0 ? totalPurchaseValue / totalConversions : 0,
   };
 
   // Identify underperforming ad sets (high spend, low/no conversions)
@@ -450,30 +489,57 @@ async function getAIAnalysis(
     };
   });
 
-  const userPrompt = `Analyze this campaign performance data:
+  const userPrompt = `Analyze this campaign performance data with advanced optimization insights:
 
 Campaign: ${campaignData.name}
 Status: ${campaignData.status}
 Objective: ${campaignData.objective || 'N/A'}
 
-Summary:
-- Total Ad Sets: ${summary.total_ad_sets}
-- Active: ${summary.active_ad_sets}, Paused: ${summary.paused_ad_sets}
+Performance Summary:
+- Total Ad Sets: ${summary.total_ad_sets} (Active: ${summary.active_ad_sets}, Paused: ${summary.paused_ad_sets})
 - Total Spend: $${summary.total_spend.toFixed(2)}
+- Total Revenue: $${summary.total_revenue.toFixed(2)}
+- Total Profit: $${summary.total_profit.toFixed(2)} (Margin: ${summary.profit_margin.toFixed(2)}%)
 - Total Conversions: ${summary.total_conversions}
-- Average Cost per Conversion: $${summary.average_cost_per_conversion.toFixed(2)}
+- Total Impressions: ${summary.total_impressions.toLocaleString()}
+- Total Reach: ${summary.total_reach.toLocaleString()}
+- Total Engagements: ${summary.total_engagements.toLocaleString()}
+
+Key Metrics:
 - Average CTR: ${summary.average_ctr.toFixed(2)}%
 - Average CPC: $${summary.average_cpc.toFixed(2)}
-- ROAS: ${summary.average_roas.toFixed(2)}
+- Average CPM: $${(summary.total_spend / summary.total_impressions * 1000).toFixed(2)}
+- Average Cost per Conversion: $${summary.average_cost_per_conversion.toFixed(2)}
+- Average ROAS: ${summary.average_roas.toFixed(2)}
+- Value per Conversion: $${summary.value_per_conversion.toFixed(2)}
+- Reach Efficiency: ${summary.reach_efficiency.toFixed(2)}% (higher is better - indicates less ad fatigue)
+- Average Frequency: ${summary.average_frequency.toFixed(2)} (optimal range: 1-3)
+- Engagement Rate: ${summary.engagement_rate.toFixed(2)}%
 
-Statistics:
+Statistics (for comparison):
 - Median Spend: $${stats.medians.spend?.toFixed(2) || 'N/A'}
 - 75th Percentile Cost per Conversion: $${stats.percentiles.cost_per_conversion?.[75]?.toFixed(2) || 'N/A'}
+- 25th Percentile ROAS: ${stats.percentiles.roas?.[25]?.toFixed(2) || 'N/A'}
 
 Ad Sets (sample):
 ${JSON.stringify(adSetsSummary, null, 2)}
 
-Provide actionable insights and optimization suggestions with specific rules that can be applied.`;
+Optimization Focus Areas:
+1. Frequency Management: If frequency > 3, consider pausing to avoid ad fatigue
+2. Reach Efficiency: Low reach efficiency (< 50%) suggests audience saturation
+3. Profitability: Focus on ad sets with positive profit margins
+4. Engagement Quality: High engagement rate indicates good creative resonance
+5. Conversion Efficiency: Prioritize ad sets with low cost per conversion relative to value per conversion
+
+Provide actionable insights considering:
+- Frequency optimization (pause high-frequency ad sets)
+- Reach efficiency improvements
+- Profitability-based prioritization
+- Engagement quality signals
+- Budget reallocation opportunities
+- Creative performance patterns
+
+Include specific rules that can be applied automatically.`;
 
   const response = await axios.post(
     'https://api.openai.com/v1/chat/completions',

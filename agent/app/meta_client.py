@@ -9,13 +9,29 @@ logger = logging.getLogger(__name__)
 class MetaAPIClient:
     """Client for interacting with Meta's Marketing API"""
     
-    def __init__(self, config_path: str = "config/meta_config.json"):
-        self.config = self._load_config(config_path)
-        self.base_url = self.config["meta_api"]["base_url"]
-        self.access_token = self.config["meta_api"]["access_token"]
-        self.ad_account_id = self.config["meta_api"]["ad_account_id"]
-        self.app_id = self.config["meta_api"]["app_id"]
-        self.timeout = self.config["meta_api"]["timeout"]
+    def __init__(self, config_path: str = "config/meta_config.json", credentials: Optional[Dict[str, Any]] = None):
+        """
+        Initialize Meta API client.
+        
+        Args:
+            config_path: Path to config file (for backward compatibility)
+            credentials: Optional dict with Meta API credentials (from database)
+        """
+        if credentials:
+            # Use credentials from database (preferred)
+            self.base_url = credentials.get("base_url", "https://graph.facebook.com/v20.0")
+            self.access_token = credentials.get("access_token", "")
+            self.ad_account_id = credentials.get("ad_account_id", "")
+            self.app_id = credentials.get("app_id", "")
+            self.timeout = credentials.get("timeout", 30)
+        else:
+            # Fallback to config file
+            self.config = self._load_config(config_path)
+            self.base_url = self.config["meta_api"]["base_url"]
+            self.access_token = self.config["meta_api"]["access_token"]
+            self.ad_account_id = self.config["meta_api"]["ad_account_id"]
+            self.app_id = self.config["meta_api"]["app_id"]
+            self.timeout = self.config["meta_api"]["timeout"]
         
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file"""

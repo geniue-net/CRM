@@ -95,6 +95,11 @@ class ApiService {
     return this.api.delete(`/api/users/${userId}`);
   }
 
+  // Ad Account endpoints
+  async getAdAccounts(): Promise<{ data: AdAccount[] }> {
+    return this.api.get('/api/ad-accounts/');
+  }
+
   // Agent endpoints
   async getAgents(): Promise<{ data: Agent[] }> {
     return this.api.get('/api/agents/');
@@ -235,6 +240,19 @@ class ApiService {
 
   async executeRule(ruleId: string): Promise<{ data: any }> {
     return this.api.post(`/api/ad-set-rules/${ruleId}/execute`);
+  }
+
+  // Meta OAuth endpoints
+  async getMetaOAuthUrl(agentId: string): Promise<{ data: { auth_url: string; state: string } }> {
+    return this.api.get(`/api/meta-oauth/authorize?agent_id=${agentId}`);
+  }
+
+  async disconnectMetaAccount(adAccountId: string): Promise<{ data: { message: string } }> {
+    return this.api.post(`/api/meta-oauth/disconnect/${adAccountId}`);
+  }
+
+  async refreshMetaToken(adAccountId: string): Promise<{ data: any }> {
+    return this.api.post(`/api/meta-oauth/refresh-token/${adAccountId}`);
   }
 }
 

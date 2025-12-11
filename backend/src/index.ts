@@ -10,6 +10,7 @@ import adAccountRoutes from './routes/ad-accounts';
 import commandRoutes from './routes/commands';
 import metricRoutes from './routes/metrics';
 import metaRoutes from './routes/meta';
+import metaOAuthRoutes from './routes/meta-oauth';
 import healthRoutes from './routes/health';
 import adSetRuleRoutes from './routes/ad-set-rules';
 import { startBackgroundTasks } from './tasks';
@@ -38,6 +39,7 @@ app.use('/api/ad-accounts', adAccountRoutes);
 app.use('/api/commands', commandRoutes);
 app.use('/api/ingest', metricRoutes);
 app.use('/api/ad-set-rules', adSetRuleRoutes);
+app.use('/api/meta-oauth', metaOAuthRoutes);
 app.use('/meta', metaRoutes);
 
 // Error handling middleware

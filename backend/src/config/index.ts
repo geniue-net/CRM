@@ -31,5 +31,12 @@ export const config = {
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
   },
+  meta: {
+    appId: process.env.META_APP_ID || '',
+    appSecret: process.env.META_APP_SECRET || '',
+    redirectUri: process.env.META_REDIRECT_URI || 'http://localhost:3000/auth/meta/callback',
+    apiVersion: process.env.META_API_VERSION || 'v20.0',
+    baseUrl: process.env.META_BASE_URL || 'https://graph.facebook.com',
+  },
 };
 
