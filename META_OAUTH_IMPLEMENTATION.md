@@ -13,7 +13,7 @@ This document describes the implementation of Meta (Facebook) OAuth integration 
   - `META_APP_ID`: Your Meta App ID
   - `META_APP_SECRET`: Your Meta App Secret
   - `META_REDIRECT_URI`: OAuth callback URL (default: `http://localhost:3000/auth/meta/callback`)
-  - `META_API_VERSION`: Meta API version (default: `v20.0`)
+  - `META_API_VERSION`: Meta API version without 'v' prefix (default: `20.0`, will become `v20.0` in URLs)
 
 #### New Routes (`backend/src/routes/meta-oauth.ts`)
 - `GET /api/meta-oauth/authorize?agent_id=xxx`: Generates OAuth authorization URL
@@ -83,7 +83,7 @@ Add to your `.env` file:
 META_APP_ID=your_app_id_here
 META_APP_SECRET=your_app_secret_here
 META_REDIRECT_URI=http://localhost:3000/auth/meta/callback
-META_API_VERSION=v20.0
+META_API_VERSION=20.0
 ```
 
 ### 3. Frontend OAuth Flow

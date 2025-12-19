@@ -11,7 +11,7 @@ Add these to your `backend/.env` file:
 META_APP_ID=1331323195071661
 META_APP_SECRET=0eb258a709f376346827b1848b7f0e84
 META_REDIRECT_URI=http://localhost:3000/auth/meta/callback
-META_API_VERSION=v20.0
+META_API_VERSION=20.0
 META_BASE_URL=https://graph.facebook.com
 ```
 
@@ -19,12 +19,20 @@ META_BASE_URL=https://graph.facebook.com
 
 1. Go to [Facebook Developers](https://developers.facebook.com/apps/)
 2. Select your app (ID: 1331323195071661)
-3. Go to **Settings > Basic**
-4. Add **Valid OAuth Redirect URIs**:
-   - `http://localhost:3000/auth/meta/callback` (for local development)
-5. Go to **Products > Facebook Login > Settings**
-6. Add the same redirect URI
-7. Ensure these permissions are requested:
+3. **Add Facebook Login Product** (if not already added):
+   - In the left sidebar, click **"Add Product"** or go to **Products**
+   - Find **"Facebook Login"** and click **"Set Up"**
+4. **Configure OAuth Redirect URIs**:
+   - Go to **Products > Facebook Login > Settings** (in the left sidebar)
+   - Scroll down to **"Valid OAuth Redirect URIs"** section
+   - Click **"Add URI"** and add:
+     - `http://localhost:3000/auth/meta/callback` (for local development)
+   - Click **"Save Changes"**
+5. **Configure App Domains** (optional but recommended):
+   - Go to **Settings > Basic**
+   - Under **"App Domains"**, add: `localhost` (for development)
+   - Under **"Website"**, add: `http://localhost:3000` (if not already set)
+6. **Ensure required permissions are requested** (these are automatically requested in the OAuth flow):
    - `ads_read`
    - `ads_management`
    - `business_management`
@@ -81,13 +89,86 @@ META_BASE_URL=https://graph.facebook.com
 - Restart the backend after adding environment variables
 
 #### "Invalid redirect_uri" Error
-- Ensure the redirect URI in Meta App settings matches `META_REDIRECT_URI`
+- Ensure the redirect URI in **Products > Facebook Login > Settings** matches `META_REDIRECT_URI` exactly
 - The redirect URI must be exactly: `http://localhost:3000/auth/meta/callback`
+- Make sure you clicked **"Save Changes"** after adding the URI
+- If using HTTPS in production, ensure the protocol matches (http vs https)
 
 #### Agent Can't Connect to Meta
 - Check that the agent has fetched credentials: Look for "Using Meta API credentials from database" in agent logs
 - Verify the agent can reach the backend: Check agent logs for connection errors
 - Ensure the Meta account is connected: Check Dashboard for connected accounts
+
+#### "Your request couldn't be processed" Error
+
+This is a common Facebook OAuth error. Try these solutions in order:
+
+**1. App is in Development Mode (MOST COMMON)**
+- Go to **Settings > Basic** in your Facebook App
+- Scroll to **"App Mode"** section
+- If it says **"Development"**, you have two options:
+  
+  **Option A: Add Test Users (Quick Fix)**
+  - Go to **Roles > Test Users** in the left sidebar
+  - Click **"Add Test Users"** or **"Create Test User"**
+  - Add the Facebook account you're trying to authenticate with as a test user
+  - Or use the test user credentials provided by Facebook
+  
+  **Option B: Switch to Live Mode (Requires App Review)**
+  - Go to **App Review > Permissions and Features**
+  - Request approval for required permissions:
+    - `ads_read` (usually auto-approved)
+    - `ads_management` (requires app review)
+    - `business_management` (requires app review)
+  - Once approved, switch app mode to **"Live"** in **Settings > Basic**
+
+**2. Verify Redirect URI Configuration**
+- Double-check that `http://localhost:3000/auth/meta/callback` is added in **Products > Facebook Login > Settings**
+- Make sure you clicked **"Save Changes"** (look for a confirmation message)
+- The URI must match **exactly** (including http vs https, trailing slashes, etc.)
+
+**3. Check App ID Mismatch**
+- Verify the `client_id` in the OAuth URL matches your `META_APP_ID` in `.env`
+- If they don't match, update your `.env` file with the correct App ID
+- Restart the backend server after changing `.env`
+
+**4. Verify Facebook Login Product is Active**
+- Go to **Products** in the left sidebar
+- Ensure **Facebook Login** shows as **"Active"** (green checkmark)
+- If not, click on it and complete the setup
+
+**5. Check App Permissions**
+- Go to **App Review > Permissions and Features**
+- Verify these permissions are available:
+  - `ads_read`
+  - `ads_management`
+  - `business_management`
+  - `pages_read_engagement`
+  - `pages_show_list`
+- Some permissions may require app review before they work
+
+**6. Clear Browser Cache and Cookies**
+- Clear cookies for `facebook.com` and `localhost:3000`
+- Try in an incognito/private window
+- Or use a different browser
+
+**7. Check App Status**
+- Go to **Settings > Basic**
+- Ensure your app is not restricted or disabled
+- Check for any warning messages at the top of the page
+
+**8. API Version Format Issue**
+- If your OAuth URL shows `vv20.0` (double "v"), this is a bug
+- Check your `.env` file: `META_API_VERSION` should be `20.0` (without the "v" prefix)
+- The code automatically adds the "v" prefix, so use `20.0` not `v20.0`
+- Restart the backend after fixing
+
+**Quick Diagnostic Steps:**
+1. Check the OAuth URL in your browser's address bar
+2. Note the `client_id` value
+3. Compare it with `META_APP_ID` in your `.env` file
+4. Verify the app mode (Development vs Live)
+5. Check if you're added as a test user (if in Development mode)
 
 #### Token Expired
 - Meta tokens are long-lived (60 days) but can expire
@@ -104,8 +185,9 @@ When deploying to production:
    ```
 
 2. **Update Meta App Settings**:
-   - Add production redirect URI to Meta App
-   - Update app domains if needed
+   - Go to **Products > Facebook Login > Settings**
+   - Add production redirect URI: `https://yourdomain.com/auth/meta/callback`
+   - Go to **Settings > Basic** and update **App Domains** with your production domain
 
 3. **Security**:
    - Use environment variables (never commit secrets)
