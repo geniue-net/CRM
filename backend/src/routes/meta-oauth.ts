@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { query, validationResult } from 'express-validator';
-import { AdAccount } from '../models';
+import { AdAccount, Agent } from '../models';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { config } from '../config';
 import axios from 'axios';
@@ -66,11 +66,11 @@ router.get('/callback', async (req: any, res: Response) => {
     const { code, state, error, error_reason, error_description } = req.query;
 
     if (error) {
-      return res.redirect(`${config.cors.origin}/ad-accounts?error=${encodeURIComponent(error_description as string || error_reason as string)}`);
+      return res.redirect(`${config.cors.origin}/dashboard?error=${encodeURIComponent(error_description as string || error_reason as string)}`);
     }
 
     if (!code || !state) {
-      return res.redirect(`${config.cors.origin}/ad-accounts?error=${encodeURIComponent('Missing authorization code or state')}`);
+      return res.redirect(`${config.cors.origin}/dashboard?error=${encodeURIComponent('Missing authorization code or state')}`);
     }
 
     // Decode state
@@ -78,7 +78,7 @@ router.get('/callback', async (req: any, res: Response) => {
     try {
       stateData = JSON.parse(Buffer.from(state as string, 'base64url').toString());
     } catch (e) {
-      return res.redirect(`${config.cors.origin}/ad-accounts?error=${encodeURIComponent('Invalid state parameter')}`);
+      return res.redirect(`${config.cors.origin}/dashboard?error=${encodeURIComponent('Invalid state parameter')}`);
     }
 
     const { user_id, agent_id } = stateData;
@@ -97,7 +97,7 @@ router.get('/callback', async (req: any, res: Response) => {
     const { access_token, expires_in, token_type } = tokenResponse.data;
 
     if (!access_token) {
-      return res.redirect(`${config.cors.origin}/ad-accounts?error=${encodeURIComponent('Failed to obtain access token')}`);
+      return res.redirect(`${config.cors.origin}/dashboard?error=${encodeURIComponent('Failed to obtain access token')}`);
     }
 
     // Get user info and ad accounts
@@ -124,6 +124,8 @@ router.get('/callback', async (req: any, res: Response) => {
 
     // Store tokens and create/update ad accounts
     const results = [];
+    let primaryAccount: any = null;
+    
     for (const account of adAccounts) {
       // Check if account already exists
       let adAccount = await AdAccount.findOne({ 
@@ -159,15 +161,34 @@ router.get('/callback', async (req: any, res: Response) => {
         await adAccount.save();
         results.push({ id: adAccount.id, name: adAccount.name, action: 'created' });
       }
+
+      // Track the first account as primary (one agent = one account)
+      if (!primaryAccount && adAccount.agent_id === agent_id) {
+        primaryAccount = adAccount;
+      }
     }
 
-    // Redirect to success page with results
+    // Update Agent with Meta connection info
+    if (agent_id && primaryAccount) {
+      const agent = await Agent.findOne({ id: agent_id });
+      if (agent) {
+        agent.meta_connected = true;
+        agent.meta_account_name = primaryAccount.name;
+        agent.meta_account_id = primaryAccount.meta_ad_account_id;
+        agent.meta_connected_at = new Date();
+        agent.meta_last_synced_at = new Date();
+        agent.meta_account_status = primaryAccount.is_active ? 'ACTIVE' : 'INACTIVE';
+        await agent.save();
+      }
+    }
+
+    // Redirect to dashboard with success message
     const successMessage = `Successfully connected ${results.length} Meta ad account(s)`;
-    return res.redirect(`${config.cors.origin}/ad-accounts?success=${encodeURIComponent(successMessage)}&accounts=${encodeURIComponent(JSON.stringify(results))}`);
+    return res.redirect(`${config.cors.origin}/dashboard?success=${encodeURIComponent(successMessage)}&accounts=${encodeURIComponent(JSON.stringify(results))}`);
   } catch (error: any) {
     console.error('OAuth callback error:', error);
     const errorMessage = error.response?.data?.error?.message || error.message || 'Failed to connect Meta account';
-    return res.redirect(`${config.cors.origin}/ad-accounts?error=${encodeURIComponent(errorMessage)}`);
+    return res.redirect(`${config.cors.origin}/dashboard?error=${encodeURIComponent(errorMessage)}`);
   }
 });
 
@@ -192,6 +213,34 @@ router.post('/disconnect/:ad_account_id', authenticate, async (req: AuthRequest,
     account.meta_user_id = undefined;
     account.is_active = false;
     await account.save();
+
+    // Update Agent to reflect disconnection
+    if (account.agent_id) {
+      const agent = await Agent.findOne({ id: account.agent_id });
+      if (agent) {
+        // Check if there are any other active accounts for this agent
+        const otherActiveAccounts = await AdAccount.findOne({ 
+          agent_id: account.agent_id, 
+          is_active: true,
+          meta_access_token: { $exists: true, $ne: null }
+        });
+
+        if (!otherActiveAccounts) {
+          // No other active accounts, clear agent's Meta info
+          agent.meta_connected = false;
+          agent.meta_account_name = undefined;
+          agent.meta_account_id = undefined;
+          agent.meta_account_status = 'DISCONNECTED';
+        } else {
+          // Update with the other account's info
+          agent.meta_account_name = otherActiveAccounts.name;
+          agent.meta_account_id = otherActiveAccounts.meta_ad_account_id;
+          agent.meta_account_status = otherActiveAccounts.is_active ? 'ACTIVE' : 'INACTIVE';
+          agent.meta_last_synced_at = otherActiveAccounts.meta_last_synced_at;
+        }
+        await agent.save();
+      }
+    }
 
     res.json({ message: 'Meta account disconnected successfully' });
   } catch (error: any) {

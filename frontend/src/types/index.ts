@@ -18,6 +18,13 @@ export interface Agent {
     token: string;
     docker_run: string;
   };
+  // Meta account connection info
+  meta_connected?: boolean;
+  meta_account_name?: string;
+  meta_account_id?: string;
+  meta_connected_at?: string;
+  meta_last_synced_at?: string;
+  meta_account_status?: 'ACTIVE' | 'INACTIVE' | 'DISCONNECTED';
 }
 
 export interface AgentCreate {

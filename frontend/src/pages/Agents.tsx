@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
-import { Agent, User, AgentCreate } from '../types';
+import { Agent, User, AgentCreate, AdAccount } from '../types';
 
 const Agents: React.FC = () => {
   const navigate = useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -25,12 +26,14 @@ const Agents: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const [agentsRes, usersRes] = await Promise.all([
+      const [agentsRes, usersRes, adAccountsRes] = await Promise.all([
         apiService.getAgents(),
         apiService.getUsers(),
+        apiService.getAdAccounts().catch(() => ({ data: [] })),
       ]);
       setAgents(Array.isArray(agentsRes.data) ? agentsRes.data : []);
       setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
+      setAdAccounts(Array.isArray(adAccountsRes.data) ? adAccountsRes.data : []);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to fetch data');
     } finally {
@@ -125,44 +128,80 @@ const Agents: React.FC = () => {
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">Name</th>
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">User</th>
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">Status</th>
+                <th className="text-left py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">Meta Account</th>
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">Last Heartbeat</th>
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {agents.map((agent) => (
-                <tr key={agent.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-dark-lighter">
-                  <td className="py-3 px-4 text-gray-900 dark:text-white">{agent.name}</td>
-                  <td className="py-3 px-4 text-gray-600 dark:text-gray-400">
-                    {users.find(u => u.id === agent.user_id)?.email || 'Unknown'}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      agent.status === 'ONLINE'
-                        ? 'bg-primary text-black'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
-                    }`}>
-                      {agent.status}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-gray-600 dark:text-gray-400">
-                    {agent.last_heartbeat_at
-                      ? new Date(agent.last_heartbeat_at).toLocaleString()
-                      : 'Never'}
-                  </td>
-                  <td className="py-3 px-4">
-                    <button
-                      onClick={() => navigate(`/agents/${agent.id}`)}
-                      className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-lighter"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {agents.map((agent) => {
+                const hasAccount = adAccounts.some(acc => acc.agent_id === agent.id && acc.is_active);
+                const isConnected = agent.meta_connected || hasAccount;
+                const accountName = agent.meta_account_name || adAccounts.find(acc => acc.agent_id === agent.id)?.name;
+                const accountStatus = agent.meta_account_status || (hasAccount ? 'ACTIVE' : 'DISCONNECTED');
+                
+                return (
+                  <tr key={agent.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-dark-lighter">
+                    <td className="py-3 px-4 text-gray-900 dark:text-white font-medium">{agent.name}</td>
+                    <td className="py-3 px-4 text-gray-600 dark:text-gray-400">
+                      {users.find(u => u.id === agent.user_id)?.email || 'Unknown'}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        agent.status === 'ONLINE'
+                          ? 'bg-primary text-black'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+                      }`}>
+                        {agent.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      {isConnected && accountName ? (
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${
+                            accountStatus === 'ACTIVE'
+                              ? 'bg-green-500'
+                              : accountStatus === 'INACTIVE'
+                              ? 'bg-yellow-500'
+                              : 'bg-gray-400'
+                          }`}></div>
+                          <div className="flex flex-col">
+                            <span className="text-sm text-gray-900 dark:text-white font-medium">{accountName}</span>
+                            <span className={`text-xs ${
+                              accountStatus === 'ACTIVE'
+                                ? 'text-green-600 dark:text-green-400'
+                                : accountStatus === 'INACTIVE'
+                                ? 'text-yellow-600 dark:text-yellow-400'
+                                : 'text-gray-500 dark:text-gray-400'
+                            }`}>
+                              {accountStatus}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-gray-400 dark:text-gray-500 italic">Not connected</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-gray-600 dark:text-gray-400">
+                      {agent.last_heartbeat_at
+                        ? new Date(agent.last_heartbeat_at).toLocaleString()
+                        : 'Never'}
+                    </td>
+                    <td className="py-3 px-4">
+                      <button
+                        onClick={() => navigate(`/agents/${agent.id}`)}
+                        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-lighter"
+                        title="View Details"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

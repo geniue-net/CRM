@@ -9,6 +9,13 @@ export interface IAgent extends Document {
   allowed_ip?: string;
   token?: string;
   token_hash?: string;
+  // Meta account connection info
+  meta_connected?: boolean;
+  meta_account_name?: string;
+  meta_account_id?: string;
+  meta_connected_at?: Date;
+  meta_last_synced_at?: Date;
+  meta_account_status?: string; // 'ACTIVE' | 'INACTIVE' | 'DISCONNECTED'
 }
 
 const AgentSchema = new Schema<IAgent>({
@@ -20,6 +27,13 @@ const AgentSchema = new Schema<IAgent>({
   allowed_ip: { type: String },
   token: { type: String },
   token_hash: { type: String },
+  // Meta account connection info
+  meta_connected: { type: Boolean, default: false },
+  meta_account_name: { type: String },
+  meta_account_id: { type: String },
+  meta_connected_at: { type: Date },
+  meta_last_synced_at: { type: Date },
+  meta_account_status: { type: String }, // 'ACTIVE' | 'INACTIVE' | 'DISCONNECTED'
 });
 
 export const Agent = mongoose.model<IAgent>('Agent', AgentSchema);
