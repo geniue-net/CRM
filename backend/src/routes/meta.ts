@@ -266,6 +266,64 @@ router.get('/adsets/:adset_id/ads', authenticate, requireRoles('USER', 'ADMIN'),
   }
 });
 
+// Get campaign optimization data
+router.get('/optimization/:campaign_id', authenticate, requireRoles('USER', 'ADMIN'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { agent_id } = req.query;
+    const { campaign_id } = req.params;
+    
+    if (!agent_id || typeof agent_id !== 'string') {
+      return res.status(400).json({ detail: 'agent_id is required' });
+    }
+    
+    // Fetch campaign ad sets data
+    const adSetsData = await getAgentMetaData(agent_id, `campaigns/${campaign_id}/adsets`);
+    const adSets = adSetsData?.ad_sets || adSetsData?.data || [];
+    
+    // Return basic optimization data for the old optimization view
+    res.json({
+      data: {
+        campaign_id,
+        campaign_insights: {
+          spend: adSets.reduce((sum: number, a: any) => sum + parseFloat(a.performance_metrics?.spend || 0), 0),
+          impressions: adSets.reduce((sum: number, a: any) => sum + parseInt(a.performance_metrics?.impressions || 0), 0),
+          clicks: adSets.reduce((sum: number, a: any) => sum + parseInt(a.performance_metrics?.clicks || 0), 0),
+          cost_per_action_type: [
+            {
+              action_type: 'purchase',
+              value: adSets.reduce((sum: number, a: any) => {
+                const conversions = a.performance_metrics?.actions?.find((act: any) => 
+                  act.action_type === 'purchase' || act.action_type === 'omni_purchase'
+                );
+                const spend = parseFloat(a.performance_metrics?.spend || 0);
+                const conversionCount = conversions ? parseInt(conversions.value || 0) : 0;
+                return sum + (conversionCount > 0 ? spend / conversionCount : 0);
+              }, 0) / adSets.length
+            }
+          ]
+        },
+        ad_sets: adSets,
+        demographic_waste: [],
+        location_waste: []
+      }
+    });
+  } catch (error: any) {
+    if (error.message === 'Agent not found') {
+      return res.status(404).json({ detail: error.message });
+    }
+    if (error.message.includes('offline')) {
+      return res.status(503).json({ detail: error.message });
+    }
+    if (error.message.includes('timeout')) {
+      return res.status(504).json({ detail: error.message });
+    }
+    if (error.message.includes('connect')) {
+      return res.status(503).json({ detail: error.message });
+    }
+    return res.status(502).json({ detail: error.message });
+  }
+});
+
 // Update ad set status
 router.put('/adsets/:adset_id/status', authenticate, requireRoles('USER', 'ADMIN'), async (req: AuthRequest, res: Response) => {
   try {
