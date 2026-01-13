@@ -142,6 +142,12 @@ class MetaAPIClient:
         in a single API call to avoid rate limits.
         Includes insights (spend, impressions, clicks, etc.) using nested insights fields.
         
+        Enhanced with additional metrics for optimization modules:
+        - Video metrics (video_3_sec_watched_actions, video_thruplay_watched_actions)
+        - Landing page metrics (landing_page_views, outbound_clicks)
+        - Conversion actions
+        - Action values for ROAS calculation
+        
         Reference: 
         - https://stackoverflow.com/questions/68576154/facebook-developer-apis-trying-to-fetch-all-the-campaigns-adsets-and-ads
         - https://stackoverflow.com/questions/60916171/how-can-i-get-the-amount-spent-faceook-marketing-api
@@ -150,17 +156,28 @@ class MetaAPIClient:
         endpoint = f"act_{self.ad_account_id}/campaigns"
         
         # Use nested fields to get campaigns with their ad sets and ads in a single call
-        # Include insights with spend, impressions, clicks, etc. for accurate spend data
-        # This avoids rate limits from making multiple separate API calls
-        # Reference: https://stackoverflow.com/questions/60916171/how-can-i-get-the-amount-spent-faceook-marketing-api
-        # The insights{spend} syntax gets actual spend from Insights API, not calculated from budget
+        # Enhanced field list for optimization modules
+        # Added: video metrics, landing page metrics, action_values for ROAS
         fields = (
             "id,name,status,objective,created_time,updated_time,daily_budget,lifetime_budget,"
-            "insights{spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action},"
+            "insights{spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,"
+            "actions,action_values,cost_per_action_type,"
+            "video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,"
+            "video_p75_watched_actions,video_p100_watched_actions,"
+            "inline_link_clicks,outbound_clicks,landing_page_views},"
             "adsets{id,name,status,effective_status,daily_budget,lifetime_budget,optimization_goal,created_time,updated_time,"
-            "insights{spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action},"
-            "ads{id,name,status,effective_status,creative,created_time,updated_time,"
-            "insights{spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action}}"
+            "targeting,bid_strategy,pacing_type,"
+            "insights{spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,"
+            "actions,action_values,cost_per_action_type,"
+            "video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,"
+            "video_p75_watched_actions,video_p100_watched_actions,"
+            "inline_link_clicks,outbound_clicks,landing_page_views},"
+            "ads{id,name,status,effective_status,creative{id,name,object_story_spec,asset_feed_spec},created_time,updated_time,"
+            "insights{spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,"
+            "actions,action_values,cost_per_action_type,"
+            "video_30_sec_watched_actions,video_p25_watched_actions,video_p50_watched_actions,"
+            "video_p75_watched_actions,video_p100_watched_actions,"
+            "inline_link_clicks,outbound_clicks,landing_page_views}}}"
         )
         
         params = {
@@ -344,6 +361,144 @@ class MetaAPIClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"API request failed: {e}")
             raise
+
+    def get_insights_with_breakdowns(
+        self, 
+        object_id: str, 
+        breakdowns: List[str] = None,
+        time_increment: str = None,
+        date_preset: str = "last_30d"
+    ) -> List[Dict[str, Any]]:
+        """Get insights with breakdowns (e.g., by platform, time)
+        
+        Args:
+            object_id: Campaign, AdSet, or Ad ID
+            breakdowns: List of breakdown types (e.g., ['publisher_platform'], ['hourly_stats_aggregated_by_advertiser_time_zone'])
+            time_increment: Time grouping ('1' for daily, 'all_days' for total)
+            date_preset: Date range preset
+            
+        Returns:
+            List of insights with breakdown dimensions
+        """
+        endpoint = f"{object_id}/insights"
+        
+        params = {
+            "date_preset": date_preset,
+            "fields": "spend,impressions,clicks,ctr,cpc,actions,action_values,reach,frequency",
+        }
+        
+        if breakdowns:
+            params["breakdowns"] = ",".join(breakdowns)
+        
+        if time_increment:
+            params["time_increment"] = time_increment
+            
+        try:
+            response = self._make_request(f"{endpoint}?{'&'.join([f'{k}={v}' for k, v in params.items()])}")
+            return response.get("data", [])
+        except Exception as e:
+            logger.error(f"Failed to get insights with breakdowns: {e}")
+            return []
+    
+    def get_platform_breakdown(self, object_id: str, date_preset: str = "last_30d") -> List[Dict[str, Any]]:
+        """Get performance breakdown by platform (Facebook, Instagram, Audience Network, Messenger)
+        
+        Args:
+            object_id: Campaign, AdSet, or Ad ID
+            date_preset: Date range preset
+            
+        Returns:
+            List of insights broken down by platform
+        """
+        return self.get_insights_with_breakdowns(
+            object_id,
+            breakdowns=["publisher_platform"],
+            date_preset=date_preset
+        )
+    
+    def get_hourly_breakdown(self, object_id: str, date_preset: str = "last_7d") -> List[Dict[str, Any]]:
+        """Get performance breakdown by hour of day
+        
+        Args:
+            object_id: Campaign, AdSet, or Ad ID
+            date_preset: Date range preset
+            
+        Returns:
+            List of insights broken down by hour
+        """
+        return self.get_insights_with_breakdowns(
+            object_id,
+            breakdowns=["hourly_stats_aggregated_by_advertiser_time_zone"],
+            date_preset=date_preset
+        )
+    
+    def get_time_comparison_insights(self, object_id: str) -> Dict[str, Any]:
+        """Get insights for different time periods for comparison
+        
+        Fetches last 7 days and last 30 days for trend analysis
+        
+        Args:
+            object_id: Campaign, AdSet, or Ad ID
+            
+        Returns:
+            Dict with 'last_7d' and 'last_30d' insights
+        """
+        try:
+            last_7d = self.get_insights_with_breakdowns(
+                object_id,
+                date_preset="last_7d"
+            )
+            last_30d = self.get_insights_with_breakdowns(
+                object_id,
+                date_preset="last_30d"
+            )
+            
+            return {
+                "last_7d": last_7d[0] if last_7d else {},
+                "last_30d": last_30d[0] if last_30d else {}
+            }
+        except Exception as e:
+            logger.error(f"Failed to get time comparison insights: {e}")
+            return {"last_7d": {}, "last_30d": {}}
+    
+    def get_ad_comments(self, ad_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get comments for a specific ad
+        
+        Args:
+            ad_id: Ad ID
+            limit: Maximum number of comments to fetch
+            
+        Returns:
+            List of comment objects
+        """
+        endpoint = f"{ad_id}/comments"
+        params = {
+            "limit": limit,
+            "fields": "id,message,created_time,from,like_count,comment_count"
+        }
+        
+        try:
+            response = self._make_request(f"{endpoint}?{'&'.join([f'{k}={v}' for k, v in params.items()])}")
+            comments = response.get("data", [])
+            
+            # Handle pagination for comments
+            while "paging" in response and "next" in response["paging"] and len(comments) < limit:
+                try:
+                    next_url = response["paging"]["next"]
+                    if "?" in next_url:
+                        query_string = next_url.split("?")[1]
+                        response = self._make_request(f"{endpoint}?{query_string}")
+                        comments.extend(response.get("data", []))
+                    else:
+                        break
+                except Exception as e:
+                    logger.warning(f"Failed to fetch next page of comments: {e}")
+                    break
+            
+            return comments[:limit]
+        except Exception as e:
+            logger.error(f"Failed to get ad comments: {e}")
+            return []
 
     def test_connection(self) -> bool:
         """Test the connection to Meta's API"""

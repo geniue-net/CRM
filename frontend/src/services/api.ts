@@ -245,6 +245,51 @@ class ApiService {
   async getQuickWins(agentId: string, campaignId: string): Promise<{ data: any }> {
     return this.api.post('/api/campaign-insights/quick-wins', { agent_id: agentId, campaign_id: campaignId });
   }
+
+  // Optimization Insights endpoints (New Modular System)
+  async runOptimizationAnalysis(
+    agentId: string,
+    campaignId: string,
+    modules?: string[],
+    includeSentiment?: boolean
+  ): Promise<{ data: any }> {
+    return this.api.post('/api/optimization-insights/analyze', {
+      agent_id: agentId,
+      campaign_id: campaignId,
+      modules: modules || ['all'],
+      include_sentiment: includeSentiment || false,
+    });
+  }
+
+  async runOptimizationModule(
+    agentId: string,
+    campaignId: string,
+    moduleName: 'bleeding_budget' | 'creative_fatigue' | 'scaling'
+  ): Promise<{ data: any }> {
+    return this.api.post(`/api/optimization-insights/module/${moduleName}`, {
+      agent_id: agentId,
+      campaign_id: campaignId,
+    });
+  }
+
+  async runSentimentAnalysis(agentId: string, adIds: string[]): Promise<{ data: any }> {
+    return this.api.post('/api/optimization-insights/sentiment', {
+      agent_id: agentId,
+      ad_ids: adIds,
+    });
+  }
+
+  async updateCampaignConfig(
+    agentId: string,
+    campaignId: string,
+    config: { target_cpa?: number; target_roas?: number }
+  ): Promise<{ data: any }> {
+    return this.api.post('/api/optimization-insights/config', {
+      agent_id: agentId,
+      campaign_id: campaignId,
+      ...config,
+    });
+  }
 }
 
 export const apiService = new ApiService();
