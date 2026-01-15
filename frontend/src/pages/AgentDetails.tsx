@@ -4,6 +4,7 @@ import { apiService } from '../services/api';
 import CampaignRules from '../components/CampaignRules';
 import AIRuleChatbot from '../components/AIRuleChatbot';
 import CampaignHealthDashboard from '../components/CampaignHealthDashboard';
+import OptimizationInsightsDashboard from '../components/OptimizationInsightsDashboard';
 import {
   Agent, 
   MetaAppInfo, 
@@ -13,7 +14,7 @@ import {
   MetaMetrics 
 } from '../types';
 
-type ViewType = 'campaigns' | 'adsets' | 'ads' | 'health' | 'optimization' | 'rules';
+type ViewType = 'campaigns' | 'adsets' | 'ads' | 'health' | 'optimization' | 'insights' | 'rules';
 
 const AgentDetails: React.FC = () => {
   const { agentId } = useParams<{ agentId: string }>();
@@ -484,6 +485,16 @@ const AgentDetails: React.FC = () => {
               }`}
             >
               Optimization
+            </button>
+            <button
+                onClick={() => setCurrentView('insights')}
+              className={`px-4 py-2 rounded-t-lg font-medium transition-colors ${
+                currentView === 'insights'
+                  ? 'bg-primary text-black border-b-2 border-primary'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              🎯 AI Insights
             </button>
             <button
                 onClick={() => setCurrentView('rules')}
@@ -966,6 +977,59 @@ const AgentDetails: React.FC = () => {
                           </div>
                           <div className="text-primary">
                             View Health →
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Insights View (NEW MODULAR SYSTEM) */}
+          {currentView === 'insights' && (
+            <div>
+              {selectedCampaign ? (
+                <div>
+                  <button
+                    onClick={() => setSelectedCampaign(null)}
+                    className="mb-4 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                  >
+                    ← Back to Campaigns
+                  </button>
+                  <OptimizationInsightsDashboard
+                    agentId={agent?.id || ''}
+                    campaignId={selectedCampaign.id}
+                    campaignName={selectedCampaign.name}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                    Select a Campaign for AI-Powered Optimization Insights
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                    Get AI-powered recommendations on budget waste, creative fatigue, and scaling opportunities
+                  </p>
+                  <div className="grid gap-4">
+                    {metaCampaigns.map((campaign) => (
+                      <div
+                        key={campaign.id}
+                        onClick={() => setSelectedCampaign(campaign)}
+                        className="card p-4 hover:shadow-lg cursor-pointer transition-shadow"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {campaign.name}
+                            </div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                              {campaign.objective} • {campaign.status}
+                            </div>
+                          </div>
+                          <div className="text-primary">
+                            View AI Insights →
                           </div>
                         </div>
                       </div>
